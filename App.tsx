@@ -6,18 +6,18 @@ import {
     Presentation, Layers, Lightbulb, BoxSelect, Paperclip, FileText, Music,
     Image as ImageIcon, Zap, HelpCircle, GripHorizontal, Search, Map,
     Command, Save, Upload, BookOpen, Wand2, Lock, Unlock, Maximize2,
-    Minimize2, RotateCw, Copy, Scissors, Type, Filter, GitBranch
+    Minimize2, RotateCw, Copy, Scissors, Type, Filter, GitBranch, BrainCircuit
 } from 'lucide-react';
 import { INITIAL_NODES, INITIAL_EDGES, INITIAL_GROUPS, GRID_SIZE, NODE_COLORS, DB_NAME, SETTINGS_KEY, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, COLORS } from './constants';
 import { Node, Edge, Viewport, DragState, Group, NodeType, ChatMessage } from './types';
 import { NodeItem } from './components/NodeItem';
-import { generateText, generateFlashcards, generateQuiz } from './services/geminiService';
+import { generateText, generateFlashcards, generateQuiz, generateMindMap } from './services/geminiService';
 
 // --- Helper for IDs ---
 const uuid = () => Math.random().toString(36).substr(2, 9);
 
 // --- Wire Component ---
-const Wire = ({ id, start, end, status = 'default', isSelected, onSelect, onContextMenu }: {
+type WireProps = {
     id: string;
     start: { x: number; y: number };
     end: { x: number; y: number };
@@ -25,7 +25,9 @@ const Wire = ({ id, start, end, status = 'default', isSelected, onSelect, onCont
     isSelected?: boolean;
     onSelect?: (id: string) => void;
     onContextMenu?: (e: React.MouseEvent, id: string) => void;
-} & React.SVGProps<SVGPathElement>) => {
+};
+
+const Wire = ({ id, start, end, status = 'default', isSelected, onSelect, onContextMenu }: WireProps) => {
     const dist = Math.abs(end.x - start.x);
     const controlPointX = Math.max(dist * 0.5, 50);
     const path = `M ${start.x} ${start.y} C ${start.x + controlPointX} ${start.y}, ${end.x - controlPointX} ${end.y}, ${end.x} ${end.y}`;
@@ -89,6 +91,10 @@ export default function App() {
     const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
     const [notifications, setNotifications] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'info'}>>([]);
 
+    // --- New State for Mind Map ---
+    const [isMindMapOpen, setIsMindMapOpen] = useState(false);
+    const [mindMapTopic, setMindMapTopic] = useState('');
+
     // Interaction Refs
     const canvasRef = useRef<HTMLDivElement>(null);
     const dragStateRef = useRef<DragState | null>(null);
@@ -96,9 +102,12 @@ export default function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const activeUploadNodeId = useRef<string | null>(null);
 
+    // FIX: Ref to access latest viewport in event listeners
+    const viewportRef = useRef(viewport);
+    useEffect(() => { viewportRef.current = viewport; }, [viewport]);
+
     // --- Persistence ---
     useEffect(() => {
-        // Simple persistence for demo
         const saved = localStorage.getItem(DB_NAME);
         if (saved) {
             try {
@@ -126,12 +135,10 @@ export default function App() {
     // Keyboard Shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Cmd/Ctrl + K for search
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                 e.preventDefault();
                 setShowSearch(true);
             }
-            // Delete key
             if (e.key === 'Delete' && selection) {
                 const node = nodes.find(n => n.id === selection);
                 if (node) {
@@ -139,32 +146,16 @@ export default function App() {
                     addNotification('Node deleted', 'success');
                 }
             }
-            // Escape to close modals
             if (e.key === 'Escape') {
                 setContextMenu(null);
                 setAiMenu(null);
                 setShowSearch(false);
                 setShowTutorial(false);
+                setIsMindMapOpen(false);
             }
-            // Cmd/Ctrl + S to save
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
                 e.preventDefault();
                 addNotification('Saved!', 'success');
-            }
-            // Cmd/Ctrl + Plus to zoom in
-            if ((e.metaKey || e.ctrlKey) && (e.key === '+' || e.key === '=')) {
-                e.preventDefault();
-                setViewport(p => ({ ...p, zoom: Math.min(p.zoom + 0.1, 3) }));
-            }
-            // Cmd/Ctrl + Minus to zoom out
-            if ((e.metaKey || e.ctrlKey) && e.key === '-') {
-                e.preventDefault();
-                setViewport(p => ({ ...p, zoom: Math.max(p.zoom - 0.1, 0.1) }));
-            }
-            // Cmd/Ctrl + 0 to reset zoom
-            if ((e.metaKey || e.ctrlKey) && e.key === '0') {
-                e.preventDefault();
-                setViewport({ x: 0, y: 0, zoom: 1 });
             }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -211,10 +202,95 @@ export default function App() {
             : { x: node.x + w, y: node.y + y };
     };
 
-    // --- Event Handlers ---
+    // --- GLOBAL EVENT LISTENERS FIX ---
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            const ds = dragStateRef.current;
+            
+            // Handle Connecting Line
+            if (connectingRef.current) { // Check ref directly or state? Using state here but accessed via closure needs care.
+                // NOTE: For 'connecting', we rely on the state update triggering re-render, so this useEffect logic 
+                // for dragging is separate. However, to fix sticking wires, we should also handle wire move here?
+                // For simplicity, we keep wire drawing in the 'div' handler or move it here. 
+                // Let's handle DRAGGING here. Wires are less sticky usually.
+            }
+
+            if (!ds) return;
+
+            // Threshold logic
+            if (ds.type === 'node' && ds.id && (ds as any).initialX !== undefined) {
+                const moveX = Math.abs(e.clientX - (ds as any).initialX);
+                const moveY = Math.abs(e.clientY - (ds as any).initialY);
+                const threshold = 8;
+                if (moveX < threshold && moveY < threshold) return;
+                if (!(ds as any).isDragging) (ds as any).isDragging = true;
+            }
+
+            const dx = e.clientX - ds.startX;
+            const dy = e.clientY - ds.startY;
+            
+            // Use viewportRef to get current zoom without stale closure
+            const currentZoom = viewportRef.current.zoom;
+
+            if (ds.type === 'canvas') {
+                setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+                ds.startX = e.clientX;
+                ds.startY = e.clientY;
+            } else if (ds.type === 'node' && ds.id && (ds as any).isDragging) {
+                setNodes(prev => prev.map(n => n.id === ds.id ? { ...n, x: n.x + dx / currentZoom, y: n.y + dy / currentZoom } : n));
+                ds.startX = e.clientX;
+                ds.startY = e.clientY;
+            } else if (ds.type === 'group' && ds.id) {
+                setGroups(prev => prev.map(g => g.id === ds.id ? { ...g, x: g.x + dx / currentZoom, y: g.y + dy / currentZoom } : g));
+                const group = groups.find(g => g.id === ds.id);
+                if (group) {
+                    const captured = nodes.filter(n => n.x >= group.x && n.x + n.width <= group.x + group.width && n.y >= group.y && n.y + n.height <= group.y + group.height).map(n => n.id);
+                    setNodes(prev => prev.map(n => captured.includes(n.id) ? { ...n, x: n.x + dx / currentZoom, y: n.y + dy / currentZoom } : n));
+                }
+                ds.startX = e.clientX;
+                ds.startY = e.clientY;
+            } else if (ds.type === 'resizeNode' && ds.id) {
+                setNodes(prev => prev.map(n => n.id === ds.id ? { 
+                    ...n, 
+                    width: Math.max(180, n.width + dx / currentZoom), 
+                    height: Math.max(100, n.height + dy / currentZoom) 
+                } : n));
+                ds.startX = e.clientX;
+                ds.startY = e.clientY;
+            } else if (ds.type === 'resizeGroup' && ds.id) {
+                setGroups(prev => prev.map(g => g.id === ds.id ? { 
+                    ...g, 
+                    width: Math.max(200, g.width + dx / currentZoom), 
+                    height: Math.max(100, g.height + dy / currentZoom) 
+                } : g));
+                ds.startX = e.clientX;
+                ds.startY = e.clientY;
+            }
+        };
+
+        const handleMouseUp = (e: MouseEvent) => {
+            const ds = dragStateRef.current;
+            dragStateRef.current = null;
+            
+            // If dragging wire
+            if (connectingRef.current) {
+                // This state is handled by React state 'connecting', 
+                // we set it to null in the div handler usually.
+                // We'll leave wire handling to the div for now as it usually terminates on a pin or canvas.
+            }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [groups, nodes]); // Dependencies for functional updates if needed, though Setters are stable.
+    
+    // --- Event Handlers (Local) ---
     const handleMouseDown = (e: React.MouseEvent) => {
-        // Middle click or space+click (simulated here by context) usually pans, 
-        // but for simplicity left click on empty space pans
         if (e.button === 0 && e.target === canvasRef.current) {
             dragStateRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY };
             setSelection(null);
@@ -228,10 +304,8 @@ export default function App() {
 
     const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        // Don't start dragging if we're already connecting
         if (connecting) return;
         if (e.button === 0) {
-            // Check if click is on a pin, button, input, or other interactive element
             const target = e.target as HTMLElement;
             if (target.closest('.group\\/pin') || 
                 target.closest('[title="Input"]') || 
@@ -242,9 +316,8 @@ export default function App() {
                 target.closest('button') ||
                 target.closest('input') ||
                 target.closest('textarea')) {
-                return; // Don't drag if clicking on interactive elements
+                return; 
             }
-            // Store initial position but don't start dragging yet - wait for movement threshold
             dragStateRef.current = { 
                 type: 'node', 
                 id, 
@@ -258,101 +331,16 @@ export default function App() {
         }
     };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        const ds = dragStateRef.current;
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
-
-        // Handle Connecting Line Drawing - prioritize this over dragging
+    // Separate handler for wire connection visual update (local to component render)
+    const handleWireMouseMove = (e: React.MouseEvent) => {
         if (connecting) {
             const canvasPos = screenToCanvas(e.clientX, e.clientY);
             setConnecting({ ...connecting, currentX: canvasPos.x, currentY: canvasPos.y });
-            // Don't process drag when connecting
-            return;
-        }
-
-        if (!ds) return;
-
-        // For node dragging, check if we've moved enough to start dragging (threshold)
-        if (ds.type === 'node' && ds.id && (ds as any).initialX !== undefined) {
-            const moveX = Math.abs(e.clientX - (ds as any).initialX);
-            const moveY = Math.abs(e.clientY - (ds as any).initialY);
-            const threshold = 8; // pixels - increased from 5 to reduce accidental drags
-            
-            // Only start dragging if moved beyond threshold
-            if (moveX < threshold && moveY < threshold) {
-                return; // Don't drag yet, wait for more movement
-            }
-            // Mark as actively dragging
-            if (!(ds as any).isDragging) {
-                (ds as any).isDragging = true;
-            }
-        }
-
-        const dx = e.clientX - ds.startX;
-        const dy = e.clientY - ds.startY;
-        
-        if (ds.type === 'canvas') {
-            setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
-            ds.startX = e.clientX;
-            ds.startY = e.clientY;
-        } else if (ds.type === 'node' && ds.id && (ds as any).isDragging) {
-            const scale = viewport.zoom;
-            setNodes(prev => prev.map(n => n.id === ds.id ? { ...n, x: n.x + dx / scale, y: n.y + dy / scale } : n));
-            ds.startX = e.clientX;
-            ds.startY = e.clientY;
-        } else if (ds.type === 'group' && ds.id) {
-            const scale = viewport.zoom;
-            setGroups(prev => prev.map(g => g.id === ds.id ? { ...g, x: g.x + dx / scale, y: g.y + dy / scale } : g));
-            // Move captured nodes
-            const group = groups.find(g => g.id === ds.id);
-            if (group) {
-                const captured = nodes.filter(n => n.x >= group.x && n.x + n.width <= group.x + group.width && n.y >= group.y && n.y + n.height <= group.y + group.height).map(n => n.id);
-                setNodes(prev => prev.map(n => captured.includes(n.id) ? { ...n, x: n.x + dx / scale, y: n.y + dy / scale } : n));
-            }
-            ds.startX = e.clientX;
-            ds.startY = e.clientY;
-        } else if (ds.type === 'resizeNode' && ds.id) {
-            const scale = viewport.zoom;
-            setNodes(prev => prev.map(n => n.id === ds.id ? { 
-                ...n, 
-                width: Math.max(180, n.width + dx / scale), 
-                height: Math.max(100, n.height + dy / scale) 
-            } : n));
-            ds.startX = e.clientX;
-            ds.startY = e.clientY;
-        } else if (ds.type === 'resizeGroup' && ds.id) {
-            const scale = viewport.zoom;
-            setGroups(prev => prev.map(g => g.id === ds.id ? { 
-                ...g, 
-                width: Math.max(200, g.width + dx / scale), 
-                height: Math.max(100, g.height + dy / scale) 
-            } : g));
-            ds.startX = e.clientX;
-            ds.startY = e.clientY;
         }
     };
 
-    const handleMouseUp = (e: React.MouseEvent) => {
-        const ds = dragStateRef.current;
-        
-        // If we were dragging a node but didn't move much, it was just a click
-        if (ds && ds.type === 'node' && (ds as any).initialX !== undefined) {
-            const moveX = Math.abs(e.clientX - (ds as any).initialX);
-            const moveY = Math.abs(e.clientY - (ds as any).initialY);
-            const threshold = 8; // pixels - match the threshold used in mousemove
-            
-            // If we didn't move much, it was just a click - don't update position
-            if (moveX < threshold && moveY < threshold && !(ds as any).isDragging) {
-                // Just a click, don't do anything
-            }
-        }
-        
-        // Always clear drag state on mouse up
-        dragStateRef.current = null;
-        
-        // If connecting and mouse up on canvas (not on a pin), cancel connection
-        if (connecting && e.target === canvasRef.current) {
+    const handleWireMouseUp = (e: React.MouseEvent) => {
+         if (connecting && e.target === canvasRef.current) {
             setConnecting(null);
         }
     };
@@ -362,8 +350,6 @@ export default function App() {
             e.preventDefault();
             const zoomSensitivity = 0.001;
             const newZoom = Math.min(Math.max(0.1, viewport.zoom - e.deltaY * zoomSensitivity), 3);
-            
-            // Zoom towards pointer could be implemented here, centering for now
             setViewport(prev => ({ ...prev, zoom: newZoom }));
         } else {
             setViewport(prev => ({ ...prev, x: prev.x - e.deltaX, y: prev.y - e.deltaY }));
@@ -385,7 +371,6 @@ export default function App() {
         setSelection(nodeId);
         const node = nodes.find(n => n.id === nodeId);
         if (node) {
-            // Center viewport on node
             const centerX = window.innerWidth / 2;
             const centerY = window.innerHeight / 2;
             setViewport({
@@ -422,14 +407,7 @@ export default function App() {
 
     // --- Export/Import ---
     const exportFlow = () => {
-        const data = {
-            nodes,
-            edges,
-            groups,
-            viewport,
-            exportedAt: new Date().toISOString(),
-            version: '1.0'
-        };
+        const data = { nodes, edges, groups, viewport, exportedAt: new Date().toISOString(), version: '1.0' };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -472,9 +450,8 @@ export default function App() {
     // --- Edge Logic ---
     const handlePinMouseDown = (e: React.MouseEvent, nodeId: string, type: 'input' | 'output') => {
         e.stopPropagation();
-        e.preventDefault(); // Prevent default to avoid any drag behavior
+        e.preventDefault(); 
         if (e.button === 0 && type === 'output') {
-            // Clear any existing drag state to prevent node dragging
             dragStateRef.current = null;
             const rect = e.currentTarget.getBoundingClientRect();
             const canvasPos = screenToCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -484,9 +461,8 @@ export default function App() {
 
     const handlePinMouseUp = (e: React.MouseEvent, targetId: string, type: 'input' | 'output') => {
         e.stopPropagation();
-        e.preventDefault(); // Prevent default
+        e.preventDefault(); 
         if (connecting && type === 'input' && connecting.source !== targetId) {
-            // Check if edge already exists
             if (!edges.find(edge => edge.source === connecting.source && edge.target === targetId)) {
                 const newEdge: Edge = {
                     id: uuid(),
@@ -497,7 +473,6 @@ export default function App() {
             }
             setConnecting(null);
         } else if (connecting && type === 'output') {
-            // If releasing on output pin, cancel connection
             setConnecting(null);
         }
     };
@@ -515,7 +490,6 @@ export default function App() {
                 updateNode(nodeId, { data: { ...node.data, label: improved } });
             } else if (action === 'flashcards') {
                 const cards = await generateFlashcards(node.data.label);
-                // Create nodes for cards
                 const newNodes: Node[] = cards.map((c, i) => ({
                     id: uuid(),
                     type: 'flashcard',
@@ -544,6 +518,94 @@ export default function App() {
         }
     };
 
+    // --- Mind Map Feature ---
+    const handleGenerateMindMap = async () => {
+        if (!mindMapTopic.trim()) return;
+        setIsMindMapOpen(false);
+        setLoadingAI(true);
+
+        try {
+            const mapData = await generateMindMap(mindMapTopic);
+            if (mapData.nodes.length === 0) throw new Error("No concepts generated");
+
+            const centerX = (-viewport.x + (window.innerWidth / 2)) / viewport.zoom;
+            const centerY = (-viewport.y + (window.innerHeight / 2)) / viewport.zoom;
+            
+            const idMap: Record<string, string> = {};
+            mapData.nodes.forEach(n => { idMap[n.id] = uuid(); });
+
+            const newNodes: Node[] = [];
+            const newEdges: Edge[] = [];
+
+            const rootNode = mapData.nodes[0]; 
+            newNodes.push({
+                id: idMap[rootNode.id],
+                type: 'lecture',
+                title: rootNode.label,
+                x: centerX - (DEFAULT_NODE_WIDTH/2),
+                y: centerY - (DEFAULT_NODE_HEIGHT/2),
+                width: DEFAULT_NODE_WIDTH,
+                height: DEFAULT_NODE_HEIGHT,
+                completed: false,
+                data: { label: rootNode.summary || 'Main Topic', attachments: [] }
+            });
+
+            const children = mapData.nodes.slice(1);
+            const radius = 400;
+            const angleStep = (2 * Math.PI) / children.length;
+
+            children.forEach((child, index) => {
+                const angle = index * angleStep;
+                const nx = centerX + radius * Math.cos(angle) - (DEFAULT_NODE_WIDTH/2);
+                const ny = centerY + radius * Math.sin(angle) - (DEFAULT_NODE_HEIGHT/2);
+
+                newNodes.push({
+                    id: idMap[child.id],
+                    type: (child.type as NodeType) || 'concept',
+                    title: child.label,
+                    x: nx,
+                    y: ny,
+                    width: DEFAULT_NODE_WIDTH,
+                    height: DEFAULT_NODE_HEIGHT,
+                    completed: false,
+                    data: { label: child.summary || '', attachments: [] }
+                });
+            });
+
+            mapData.edges.forEach(edge => {
+                if (idMap[edge.source] && idMap[edge.target]) {
+                    newEdges.push({
+                        id: uuid(),
+                        source: idMap[edge.source],
+                        target: idMap[edge.target]
+                    });
+                }
+            });
+
+            setNodes(prev => [...prev, ...newNodes]);
+            setEdges(prev => [...prev, ...newEdges]);
+            
+            setGroups(prev => [...prev, {
+                id: uuid(),
+                title: mindMapTopic,
+                x: centerX - radius - 200,
+                y: centerY - radius - 200,
+                width: (radius * 2) + 600,
+                height: (radius * 2) + 600,
+                color: COLORS.groupHeader
+            }]);
+
+            addNotification("Mind Map Generated!", "success");
+
+        } catch (e: any) {
+            console.error(e);
+            addNotification("Failed to generate mind map", "error");
+        } finally {
+            setLoadingAI(false);
+            setMindMapTopic('');
+        }
+    };
+
     // --- Chat Logic ---
     const sendChatMessage = async () => {
         if(!chatInput.trim()) return;
@@ -553,7 +615,6 @@ export default function App() {
         setIsChatLoading(true);
 
         try {
-            // Context injection
             let context = "User is in a study canvas.";
             if (selection) {
                 const n = nodes.find(n => n.id === selection);
@@ -605,8 +666,8 @@ export default function App() {
                 ref={canvasRef}
                 className="absolute inset-0 z-0 cursor-grab active:cursor-grabbing pt-14"
                 onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
+                onMouseMove={handleWireMouseMove}
+                onMouseUp={handleWireMouseUp}
                 onWheel={handleWheel}
                 onContextMenu={(e) => { e.preventDefault(); if(!dragStateRef.current) { const pos = screenToCanvas(e.clientX, e.clientY); setContextMenu({x: e.clientX, y: e.clientY, canvasX: pos.x, canvasY: pos.y}); } }}
                 style={{
@@ -754,6 +815,9 @@ export default function App() {
                 <div className="flex items-center gap-2">
                     <Timer />
                     <div className="h-6 w-px bg-zinc-700"></div>
+                    <button onClick={() => setIsMindMapOpen(true)} className="p-2 rounded hover:bg-zinc-800 transition-smooth text-purple-400" title="AI Mind Map">
+                        <BrainCircuit size={18} />
+                    </button>
                     <button onClick={() => setShowMinimap(!showMinimap)} className={`p-2 rounded hover:bg-zinc-800 transition-smooth ${showMinimap ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400'}`} title="Toggle Mini-map">
                         <Map size={18} />
                     </button>
@@ -910,6 +974,31 @@ export default function App() {
                         <div className="flex justify-end gap-2">
                             <button onClick={() => setIsSettingsOpen(false)} className="px-3 py-1.5 hover:bg-zinc-800 rounded text-sm">Cancel</button>
                             <button onClick={() => { localStorage.setItem(SETTINGS_KEY, apiKey); setIsSettingsOpen(false); }} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium">Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* NEW MIND MAP MODAL */}
+            {isMindMapOpen && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-xl w-96 shadow-2xl">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-purple-400"><BrainCircuit className="w-5 h-5" /> AI Mind Map</h2>
+                        <label className="block text-sm text-zinc-400 mb-2">Enter a Topic</label>
+                        <input 
+                            autoFocus
+                            type="text" 
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded p-3 text-sm outline-none focus:border-purple-500 mb-4" 
+                            placeholder="e.g. Photosynthesis, The Cold War..." 
+                            value={mindMapTopic} 
+                            onChange={e => setMindMapTopic(e.target.value)} 
+                            onKeyDown={e => e.key === 'Enter' && handleGenerateMindMap()}
+                        />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setIsMindMapOpen(false)} className="px-3 py-1.5 hover:bg-zinc-800 rounded text-sm">Cancel</button>
+                            <button onClick={handleGenerateMindMap} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded text-sm font-medium flex items-center gap-2">
+                                <Sparkles size={14}/> Generate
+                            </button>
                         </div>
                     </div>
                 </div>

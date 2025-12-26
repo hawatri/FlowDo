@@ -58,6 +58,10 @@ export interface DragState {
   startX: number;
   startY: number;
   captured?: string[]; // IDs of nodes captured by group
+  // Optional fields used for drag thresholds and state
+  initialX?: number;
+  initialY?: number;
+  isDragging?: boolean;
 }
 
 export interface ChatMessage {

@@ -3,7 +3,7 @@ import { Node, NodeType, Attachment } from '../types';
 import { NODE_COLORS, COLORS, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT } from '../constants';
 import { 
   Trash2, GripHorizontal, CheckCircle, Circle, RefreshCw, 
-  Sparkles, Paperclip, ImageIcon, FileText, Music, Play,
+  Sparkles, Paperclip, Image as ImageIcon, FileText, Music, Play,
   Presentation, Layers, X
 } from 'lucide-react';
 
