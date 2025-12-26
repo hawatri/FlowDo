@@ -9,7 +9,7 @@ import { Wire } from './components/Wire';
 import { FlowNode } from './components/FlowNode';
 import { NodeGroup } from './components/NodeGroup';
 import { ContextMenuComponent, AIMenuComponent } from './components/ContextMenus';
-import { SettingsModal, TopicModal, LoadingOverlay } from './components/Modals';
+import { SettingsModal, TopicModal, LoadingOverlay, ConfirmModal } from './components/Modals';
 import { ChatSidebar } from './components/ChatSidebar';
 import { Minimap } from './components/Minimap';
 import { ZoomControls } from './components/ZoomControls';
@@ -80,6 +80,7 @@ function FlowDo() {
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [showChatSidebar, setShowChatSidebar] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [topicInput, setTopicInput] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(SETTINGS_KEY) || '');
   const [importedText, setImportedText] = useState<string>('');
@@ -757,12 +758,27 @@ function FlowDo() {
     toastSuccess("Saved!");
   }, [apiKey, setShowSettings]);
 
-  const handleReset = useCallback(async () => {
-    if (window.confirm('Reset all data?')) {
-      await clearDB();
-      window.location.reload();
-    }
+  const handleReset = useCallback(() => {
+    setShowResetConfirm(true);
   }, []);
+
+  const confirmReset = useCallback(async () => {
+    setShowResetConfirm(false);
+    
+    // Clear all state - completely clean canvas
+    setNodes([]);
+    setEdges([]);
+    setGroups([]);
+    setViewport({ x: 0, y: 0, zoom: 1 });
+    setSelection(null);
+    setContextMenu(null);
+    setAiMenu(null);
+    
+    // Clear database
+    await clearDB();
+    
+    toastSuccess('Canvas cleared successfully!');
+  }, [setNodes, setEdges, setGroups, setViewport, setSelection, setContextMenu, setAiMenu]);
 
   const handleUploadFlow = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -874,6 +890,17 @@ function FlowDo() {
       />
 
       <LoadingOverlay isVisible={isAiLoading} />
+
+      <ConfirmModal
+        isOpen={showResetConfirm}
+        title="Reset Canvas"
+        message="This will clear all nodes, edges, and groups from the canvas. This action cannot be undone."
+        confirmText="Reset"
+        cancelText="Cancel"
+        onConfirm={confirmReset}
+        onCancel={() => setShowResetConfirm(false)}
+        variant="danger"
+      />
 
       {/* Header */}
       <div className="absolute top-4 left-4 z-50 pointer-events-none">
