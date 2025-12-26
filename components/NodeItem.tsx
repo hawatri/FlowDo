@@ -19,11 +19,12 @@ interface NodeProps {
   onResizeStart: (e: React.MouseEvent, nodeId: string) => void;
   onAttach: (nodeId: string) => void;
   onAIAction: (nodeId: string, action: string, event?: React.MouseEvent) => void;
+  searchQuery?: string;
 }
 
 export const NodeItem: React.FC<NodeProps> = ({
   node, isSelected, scale, onUpdate, onDelete, onMouseDown, 
-  onConnectStart, onConnectEnd, onResizeStart, onAttach, onAIAction
+  onConnectStart, onConnectEnd, onResizeStart, onAttach, onAIAction, searchQuery
 }) => {
   const styles = NODE_COLORS[node.type];
   // Get header color based on node type (matching initiallook.txt logic)
@@ -95,19 +96,24 @@ export const NodeItem: React.FC<NodeProps> = ({
     }
   };
 
+  const isSearchMatch = searchQuery && (node.title.toLowerCase().includes(searchQuery.toLowerCase()) || node.data.label.toLowerCase().includes(searchQuery.toLowerCase()));
+
   return (
     <div
-      className="absolute flex flex-col rounded-lg shadow-xl border overflow-hidden group transition-shadow duration-200"
+      className={`absolute flex flex-col rounded-lg shadow-xl border overflow-hidden group transition-all duration-300 ${
+        isSearchMatch ? 'ring-2 ring-yellow-500/50 shadow-yellow-500/20' : ''
+      } ${isSelected ? 'ring-2 ring-indigo-500/50 shadow-indigo-500/20' : ''}`}
       style={{
         left: node.x,
         top: node.y,
         width: node.width || DEFAULT_NODE_WIDTH,
         height: node.height || DEFAULT_NODE_HEIGHT,
         backgroundColor: 'rgba(20, 20, 20, 0.95)',
-        borderColor: isSelected ? COLORS.wireSelected : '#333',
-        borderWidth: isSelected ? 2 : 1,
+        borderColor: isSelected ? COLORS.wireSelected : (isSearchMatch ? '#eab308' : '#333'),
+        borderWidth: isSelected ? 2 : (isSearchMatch ? 2 : 1),
         backdropFilter: 'blur(8px)',
-        zIndex: 20
+        zIndex: isSearchMatch ? 25 : 20,
+        transform: isSearchMatch ? 'scale(1.02)' : 'scale(1)',
       }}
       onMouseDown={onMouseDown}
     >

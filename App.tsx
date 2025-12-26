@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
     Grid, Users, Plus, Minus, Settings, Bot, Timer, 
     MousePointer2, Eraser, Download, Share2, Sparkles, X, Layout, Play,
     GraduationCap, Clock, RotateCcw, Send, CheckCircle, Circle, Trash2,
     Presentation, Layers, Lightbulb, BoxSelect, Paperclip, FileText, Music,
-    Image as ImageIcon, Zap, HelpCircle, GripHorizontal
+    Image as ImageIcon, Zap, HelpCircle, GripHorizontal, Search, Map,
+    Command, Save, Upload, BookOpen, Wand2, Lock, Unlock, Maximize2,
+    Minimize2, RotateCw, Copy, Scissors, Type, Filter, GitBranch
 } from 'lucide-react';
 import { INITIAL_NODES, INITIAL_EDGES, INITIAL_GROUPS, GRID_SIZE, NODE_COLORS, DB_NAME, SETTINGS_KEY, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, COLORS } from './constants';
 import { Node, Edge, Viewport, DragState, Group, NodeType, ChatMessage } from './types';
@@ -80,6 +82,12 @@ export default function App() {
     const [apiKey, setApiKey] = useState(() => localStorage.getItem(SETTINGS_KEY) || '');
     const [loadingAI, setLoadingAI] = useState(false);
     const [connecting, setConnecting] = useState<{source: string, x: number, y: number, currentX?: number, currentY?: number} | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [showSearch, setShowSearch] = useState(false);
+    const [showMinimap, setShowMinimap] = useState(true);
+    const [showTutorial, setShowTutorial] = useState(() => !localStorage.getItem('flowdo_tutorial_completed'));
+    const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+    const [notifications, setNotifications] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'info'}>>([]);
 
     // Interaction Refs
     const canvasRef = useRef<HTMLDivElement>(null);
@@ -103,11 +111,74 @@ export default function App() {
     }, []);
 
     useEffect(() => {
+        setSaveStatus('saving');
         const t = setTimeout(() => {
-            localStorage.setItem(DB_NAME, JSON.stringify({ nodes, edges, groups }));
-        }, 1000);
+            try {
+                localStorage.setItem(DB_NAME, JSON.stringify({ nodes, edges, groups, viewport }));
+                setSaveStatus('saved');
+            } catch (e) {
+                setSaveStatus('error');
+            }
+        }, 500);
         return () => clearTimeout(t);
-    }, [nodes, edges, groups]);
+    }, [nodes, edges, groups, viewport]);
+
+    // Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Cmd/Ctrl + K for search
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                setShowSearch(true);
+            }
+            // Delete key
+            if (e.key === 'Delete' && selection) {
+                const node = nodes.find(n => n.id === selection);
+                if (node) {
+                    deleteNode(selection);
+                    addNotification('Node deleted', 'success');
+                }
+            }
+            // Escape to close modals
+            if (e.key === 'Escape') {
+                setContextMenu(null);
+                setAiMenu(null);
+                setShowSearch(false);
+                setShowTutorial(false);
+            }
+            // Cmd/Ctrl + S to save
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                addNotification('Saved!', 'success');
+            }
+            // Cmd/Ctrl + Plus to zoom in
+            if ((e.metaKey || e.ctrlKey) && (e.key === '+' || e.key === '=')) {
+                e.preventDefault();
+                setViewport(p => ({ ...p, zoom: Math.min(p.zoom + 0.1, 3) }));
+            }
+            // Cmd/Ctrl + Minus to zoom out
+            if ((e.metaKey || e.ctrlKey) && e.key === '-') {
+                e.preventDefault();
+                setViewport(p => ({ ...p, zoom: Math.max(p.zoom - 0.1, 0.1) }));
+            }
+            // Cmd/Ctrl + 0 to reset zoom
+            if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+                e.preventDefault();
+                setViewport({ x: 0, y: 0, zoom: 1 });
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selection, nodes]);
+
+    // Notification system
+    const addNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        const id = uuid();
+        setNotifications(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== id));
+        }, 3000);
+    };
 
     // --- Timer Logic ---
     useEffect(() => {
@@ -254,6 +325,32 @@ export default function App() {
         }
     };
 
+    // --- Search Functionality ---
+    const filteredNodes = useMemo(() => {
+        if (!searchQuery.trim()) return nodes;
+        const query = searchQuery.toLowerCase();
+        return nodes.filter(node => 
+            node.title.toLowerCase().includes(query) ||
+            node.data.label.toLowerCase().includes(query) ||
+            node.type.toLowerCase().includes(query)
+        );
+    }, [nodes, searchQuery]);
+
+    const highlightNode = (nodeId: string) => {
+        setSelection(nodeId);
+        const node = nodes.find(n => n.id === nodeId);
+        if (node) {
+            // Center viewport on node
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            setViewport({
+                x: centerX - (node.x * viewport.zoom) - (node.width * viewport.zoom / 2),
+                y: centerY - (node.y * viewport.zoom) - (node.height * viewport.zoom / 2),
+                zoom: viewport.zoom
+            });
+        }
+    };
+
     // --- Node Logic ---
     const addNode = (type: NodeType, x: number, y: number) => {
         const newNode: Node = {
@@ -269,11 +366,58 @@ export default function App() {
         };
         setNodes(p => [...p, newNode]);
         setContextMenu(null);
+        addNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} node created`, 'success');
     };
 
     const deleteNode = (id: string) => {
         setNodes(p => p.filter(n => n.id !== id));
         setEdges(p => p.filter(e => e.source !== id && e.target !== id));
+        if (selection === id) setSelection(null);
+    };
+
+    // --- Export/Import ---
+    const exportFlow = () => {
+        const data = {
+            nodes,
+            edges,
+            groups,
+            viewport,
+            exportedAt: new Date().toISOString(),
+            version: '1.0'
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `flowdo-export-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        addNotification('Flow exported successfully!', 'success');
+    };
+
+    const importFlow = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json';
+        input.onchange = (e: any) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target?.result as string);
+                    if (data.nodes) setNodes(data.nodes);
+                    if (data.edges) setEdges(data.edges);
+                    if (data.groups) setGroups(data.groups);
+                    if (data.viewport) setViewport(data.viewport);
+                    addNotification('Flow imported successfully!', 'success');
+                } catch (err) {
+                    addNotification('Failed to import flow', 'error');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
     };
 
     const updateNode = (id: string, data: Partial<Node>) => {
@@ -507,6 +651,7 @@ export default function App() {
                                     setAiMenu(null);
                                 }
                             }}
+                            searchQuery={searchQuery}
                         />
                     ))}
                 </div>
@@ -514,20 +659,141 @@ export default function App() {
 
             {/* UI Overlay */}
             
-            {/* Header */}
-            <div className="absolute top-0 left-0 w-full h-14 bg-zinc-900/80 backdrop-blur border-b border-zinc-800 flex items-center justify-between px-4 z-50">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center"><GraduationCap size={20} /></div>
+            {/* Top Bar - Enhanced */}
+            <div className="absolute top-0 left-0 w-full h-14 glass border-b border-white/10 flex items-center justify-between px-4 z-50 animate-fadeIn">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center shadow-lg hover-glow transition-smooth">
+                        <GraduationCap size={20} className="text-white" />
+                    </div>
                     <div>
-                        <h1 className="font-bold text-sm leading-tight">FlowDo</h1>
-                        <p className="text-[10px] text-zinc-400">AI Study Suite</p>
+                        <h1 className="font-bold text-sm leading-tight gradient-text">FlowDo</h1>
+                        <p className="text-[10px] text-zinc-400">AI-Powered Learning Canvas</p>
                     </div>
                 </div>
-                <Timer />
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-2 rounded hover:bg-zinc-800 ${isChatOpen ? 'bg-indigo-600 hover:bg-indigo-500' : ''}`} title="AI Companion"><Bot size={18} /></button>
-                    <button onClick={() => setIsSettingsOpen(true)} className="p-2 rounded hover:bg-zinc-800"><Settings size={18} /></button>
+                
+                {/* Search Bar */}
+                <div className="flex-1 max-w-md mx-8 relative">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search nodes... (⌘K)"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onFocus={() => setShowSearch(true)}
+                            className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-10 py-2 text-sm focus:outline-none focus:border-indigo-500/50 focus:bg-zinc-900 transition-smooth"
+                        />
+                        {searchQuery && (
+                            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                    {showSearch && searchQuery && filteredNodes.length > 0 && (
+                        <div className="absolute top-full mt-2 w-full bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl max-h-64 overflow-y-auto z-50 animate-fadeIn">
+                            {filteredNodes.map(node => (
+                                <button
+                                    key={node.id}
+                                    onClick={() => { highlightNode(node.id); setShowSearch(false); }}
+                                    className="w-full px-4 py-2 text-left hover:bg-zinc-800 flex items-center gap-2 transition-smooth"
+                                >
+                                    <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: COLORS[`nodeHeader${node.type.charAt(0).toUpperCase() + node.type.slice(1)}` as keyof typeof COLORS] || COLORS.nodeHeaderTask }} />
+                                    <span className="text-sm">{node.title}</span>
+                                    <span className="text-xs text-zinc-500 ml-auto">{node.type}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
+
+                <div className="flex items-center gap-2">
+                    <Timer />
+                    <div className="h-6 w-px bg-zinc-700"></div>
+                    <button onClick={() => setShowMinimap(!showMinimap)} className={`p-2 rounded hover:bg-zinc-800 transition-smooth ${showMinimap ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400'}`} title="Toggle Mini-map">
+                        <Map size={18} />
+                    </button>
+                    <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-2 rounded hover:bg-zinc-800 transition-smooth ${isChatOpen ? 'bg-indigo-600 hover:bg-indigo-500' : ''}`} title="AI Companion">
+                        <Bot size={18} />
+                    </button>
+                    <button onClick={() => setIsSettingsOpen(true)} className="p-2 rounded hover:bg-zinc-800 transition-smooth" title="Settings">
+                        <Settings size={18} />
+                    </button>
+                </div>
+            </div>
+
+            {/* Save Status */}
+            <div className="absolute top-16 left-4 z-40 animate-fadeIn">
+                <div className={`text-xs font-mono px-2 py-1 rounded glass ${
+                    saveStatus === 'saving' ? 'text-yellow-400 animate-pulse-slow' :
+                    saveStatus === 'error' ? 'text-red-400' :
+                    'text-green-400'
+                }`}>
+                    {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'error' ? 'Error!' : '✓ Saved'}
+                </div>
+            </div>
+
+            {/* Notifications */}
+            <div className="fixed top-20 right-4 z-[100] flex flex-col gap-2">
+                {notifications.map(notif => (
+                    <div
+                        key={notif.id}
+                        className={`px-4 py-2 rounded-lg shadow-xl glass border animate-slideIn ${
+                            notif.type === 'success' ? 'border-green-500/50 text-green-400' :
+                            notif.type === 'error' ? 'border-red-500/50 text-red-400' :
+                            'border-blue-500/50 text-blue-400'
+                        }`}
+                    >
+                        {notif.message}
+                    </div>
+                ))}
+            </div>
+
+            {/* Mini-map */}
+            {showMinimap && (
+                <div className="absolute bottom-4 right-4 w-48 h-32 bg-zinc-900/90 backdrop-blur-xl border border-zinc-700 rounded-lg p-2 z-40 animate-fadeIn">
+                    <div className="text-xs text-zinc-400 mb-1 flex items-center justify-between">
+                        <span>Mini-map</span>
+                        <button onClick={() => setShowMinimap(false)} className="hover:text-white">
+                            <X size={12} />
+                        </button>
+                    </div>
+                    <div className="relative w-full h-full bg-zinc-950 rounded overflow-hidden">
+                        {/* Mini-map content would go here - simplified for now */}
+                        <div className="absolute inset-0 opacity-50" style={{
+                            backgroundSize: '4px 4px',
+                            backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`
+                        }} />
+                        {nodes.map(node => (
+                            <div
+                                key={node.id}
+                                className="absolute bg-indigo-500/50 rounded"
+                                style={{
+                                    left: `${(node.x / 2000) * 100}%`,
+                                    top: `${(node.y / 2000) * 100}%`,
+                                    width: `${((node.width || DEFAULT_NODE_WIDTH) / 2000) * 100}%`,
+                                    height: `${((node.height || DEFAULT_NODE_HEIGHT) / 2000) * 100}%`,
+                                }}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Quick Actions Toolbar */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 glass border border-white/10 rounded-2xl px-3 py-2 flex items-center gap-2 z-40 animate-fadeIn">
+                <button onClick={exportFlow} className="p-2 rounded-lg hover:bg-zinc-800 transition-smooth" title="Export (⌘E)">
+                    <Download size={16} />
+                </button>
+                <button onClick={importFlow} className="p-2 rounded-lg hover:bg-zinc-800 transition-smooth" title="Import">
+                    <Upload size={16} />
+                </button>
+                <div className="w-px h-6 bg-zinc-700"></div>
+                <button onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })} className="p-2 rounded-lg hover:bg-zinc-800 transition-smooth" title="Reset View">
+                    <RotateCw size={16} />
+                </button>
+                <button onClick={() => setShowTutorial(true)} className="p-2 rounded-lg hover:bg-zinc-800 transition-smooth" title="Tutorial">
+                    <HelpCircle size={16} />
+                </button>
             </div>
 
             {/* Context Menu */}
@@ -604,7 +870,69 @@ export default function App() {
                 </div>
             )}
 
-            {loadingAI && <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-indigo-600 px-4 py-2 rounded-full text-sm font-medium shadow-lg z-[100] animate-pulse flex items-center gap-2"><Sparkles size={16}/> AI Working...</div>}
+            {loadingAI && <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-3 rounded-full text-sm font-medium shadow-2xl z-[100] animate-pulse-slow flex items-center gap-2 hover-glow">
+                <Sparkles size={16} className="animate-spin"/> AI Working...
+            </div>}
+
+            {/* Tutorial Overlay */}
+            {showTutorial && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center animate-fadeIn">
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-2xl mx-4 shadow-2xl animate-slideIn">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-2xl font-bold gradient-text flex items-center gap-2">
+                                <BookOpen size={24} /> Welcome to FlowDo!
+                            </h2>
+                            <button onClick={() => { setShowTutorial(false); localStorage.setItem('flowdo_tutorial_completed', 'true'); }} className="text-zinc-400 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="space-y-4 text-zinc-300">
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0">
+                                    <MousePointer2 size={16} className="text-indigo-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-semibold text-white mb-1">Right-click to Create</h3>
+                                    <p className="text-sm">Right-click anywhere on the canvas to add new nodes</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-purple-600/20 flex items-center justify-center flex-shrink-0">
+                                    <GitBranch size={16} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-semibold text-white mb-1">Connect Nodes</h3>
+                                    <p className="text-sm">Drag from the right pin (output) to the left pin (input) to connect nodes</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-cyan-600/20 flex items-center justify-center flex-shrink-0">
+                                    <Command size={16} className="text-cyan-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-semibold text-white mb-1">Keyboard Shortcuts</h3>
+                                    <p className="text-sm"><kbd className="px-2 py-1 bg-zinc-800 rounded text-xs">⌘K</kbd> Search • <kbd className="px-2 py-1 bg-zinc-800 rounded text-xs">⌘S</kbd> Save • <kbd className="px-2 py-1 bg-zinc-800 rounded text-xs">Delete</kbd> Remove</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-600/20 flex items-center justify-center flex-shrink-0">
+                                    <Sparkles size={16} className="text-emerald-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-semibold text-white mb-1">AI Features</h3>
+                                    <p className="text-sm">Click the sparkle icon on any node to access AI tools like enhancement, quiz generation, and more</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => { setShowTutorial(false); localStorage.setItem('flowdo_tutorial_completed', 'true'); }}
+                            className="mt-6 w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-2 rounded-lg font-medium transition-smooth hover-glow"
+                        >
+                            Get Started
+                        </button>
+                    </div>
+                </div>
+            )}
             
             <input type="file" ref={fileInputRef} className="hidden" />
         </div>
