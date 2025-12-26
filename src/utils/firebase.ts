@@ -195,19 +195,22 @@ export const getUserFlows = async (): Promise<SavedFlow[]> => {
   }
 
   try {
+    // First, get all flows for the user (without ordering)
     const q = query(
       collection(db, 'flows'),
-      where('userId', '==', user.uid),
-      orderBy('updatedAt', 'desc')
+      where('userId', '==', user.uid)
     );
 
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    const flows = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate() || new Date(),
       updatedAt: doc.data().updatedAt?.toDate() || new Date()
     })) as SavedFlow[];
+
+    // Sort client-side by updatedAt (most recent first)
+    return flows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   } catch (error) {
     console.error('Error loading user flows:', error);
     throw error;
@@ -224,11 +227,10 @@ export const searchUserFlows = async (searchTerm: string): Promise<SavedFlow[]> 
   }
 
   try {
-    // Get all user flows first (Firestore doesn't support full-text search easily)
+    // Get all user flows first (without ordering to avoid index requirement)
     const q = query(
       collection(db, 'flows'),
-      where('userId', '==', user.uid),
-      orderBy('updatedAt', 'desc')
+      where('userId', '==', user.uid)
     );
 
     const querySnapshot = await getDocs(q);
@@ -241,11 +243,14 @@ export const searchUserFlows = async (searchTerm: string): Promise<SavedFlow[]> 
 
     // Client-side filtering for title, description, and tags
     const searchLower = searchTerm.toLowerCase();
-    return allFlows.filter(flow => 
+    const filtered = allFlows.filter(flow => 
       flow.title.toLowerCase().includes(searchLower) ||
       flow.description?.toLowerCase().includes(searchLower) ||
       flow.tags?.some(tag => tag.toLowerCase().includes(searchLower))
     );
+
+    // Sort by updatedAt (most recent first)
+    return filtered.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   } catch (error) {
     console.error('Error searching flows:', error);
     throw error;
