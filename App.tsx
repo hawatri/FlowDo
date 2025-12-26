@@ -102,8 +102,14 @@ export default function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const activeUploadNodeId = useRef<string | null>(null);
 
-    // FIX: Ref to access latest viewport in event listeners
+    // FIX 1: Create Refs for state so event listeners don't need to re-bind on every render
+    const nodesRef = useRef(nodes);
+    const groupsRef = useRef(groups);
     const viewportRef = useRef(viewport);
+
+    // FIX 2: Sync Refs with State
+    useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+    useEffect(() => { groupsRef.current = groups; }, [groups]);
     useEffect(() => { viewportRef.current = viewport; }, [viewport]);
 
     // --- Persistence ---
@@ -207,12 +213,10 @@ export default function App() {
         const handleMouseMove = (e: MouseEvent) => {
             const ds = dragStateRef.current;
             
-            // Handle Connecting Line
-            if (connectingRef.current) { // Check ref directly or state? Using state here but accessed via closure needs care.
-                // NOTE: For 'connecting', we rely on the state update triggering re-render, so this useEffect logic 
-                // for dragging is separate. However, to fix sticking wires, we should also handle wire move here?
-                // For simplicity, we keep wire drawing in the 'div' handler or move it here. 
-                // Let's handle DRAGGING here. Wires are less sticky usually.
+            // Fail-safe: If no mouse button is pressed, ensure we stop dragging
+            if (e.buttons === 0 && ds) {
+                dragStateRef.current = null;
+                return;
             }
 
             if (!ds) return;
@@ -242,10 +246,20 @@ export default function App() {
                 ds.startY = e.clientY;
             } else if (ds.type === 'group' && ds.id) {
                 setGroups(prev => prev.map(g => g.id === ds.id ? { ...g, x: g.x + dx / currentZoom, y: g.y + dy / currentZoom } : g));
-                const group = groups.find(g => g.id === ds.id);
+                
+                // Use REFS to find captured nodes so we don't depend on stale 'nodes' state or cause re-binds
+                const group = groupsRef.current.find(g => g.id === ds.id);
                 if (group) {
-                    const captured = nodes.filter(n => n.x >= group.x && n.x + n.width <= group.x + group.width && n.y >= group.y && n.y + n.height <= group.y + group.height).map(n => n.id);
-                    setNodes(prev => prev.map(n => captured.includes(n.id) ? { ...n, x: n.x + dx / currentZoom, y: n.y + dy / currentZoom } : n));
+                    const captured = nodesRef.current.filter(n => 
+                        n.x >= group.x && 
+                        n.x + n.width <= group.x + group.width && 
+                        n.y >= group.y && 
+                        n.y + n.height <= group.y + group.height
+                    ).map(n => n.id);
+                    
+                    if (captured.length > 0) {
+                        setNodes(prev => prev.map(n => captured.includes(n.id) ? { ...n, x: n.x + dx / currentZoom, y: n.y + dy / currentZoom } : n));
+                    }
                 }
                 ds.startX = e.clientX;
                 ds.startY = e.clientY;
@@ -269,17 +283,10 @@ export default function App() {
         };
 
         const handleMouseUp = (e: MouseEvent) => {
-            const ds = dragStateRef.current;
             dragStateRef.current = null;
-            
-            // If dragging wire
-            if (connectingRef.current) {
-                // This state is handled by React state 'connecting', 
-                // we set it to null in the div handler usually.
-                // We'll leave wire handling to the div for now as it usually terminates on a pin or canvas.
-            }
         };
 
+        // Attach listeners once
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
 
@@ -287,7 +294,7 @@ export default function App() {
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [groups, nodes]); // Dependencies for functional updates if needed, though Setters are stable.
+    }, []); // Empty dependency array ensures listeners are stable!
     
     // --- Event Handlers (Local) ---
     const handleMouseDown = (e: React.MouseEvent) => {
