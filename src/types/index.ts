@@ -1,6 +1,6 @@
 export interface Node {
   id: string;
-  type: 'lecture' | 'concept' | 'question' | 'summary' | 'task' | 'resource' | 'event' | 'goal' | 'note' | 'idea';
+  type: 'lecture' | 'concept' | 'question' | 'summary' | 'task' | 'resource' | 'event' | 'goal' | 'note' | 'idea' | 'mindmap' | 'milestone' | 'insight' | 'reference';
   title: string;
   x: number;
   y: number;
@@ -10,6 +10,10 @@ export interface Node {
   data: {
     label: string;
     attachments: Attachment[];
+    color?: string;
+    icon?: string;
+    priority?: 'low' | 'medium' | 'high';
+    dueDate?: string;
   };
 }
 

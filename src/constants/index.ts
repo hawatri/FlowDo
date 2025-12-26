@@ -21,6 +21,9 @@ export const COLORS = {
   nodeHeaderNote: '#6b7280', // Gray
   nodeHeaderIdea: '#8b5cf6', // Purple
   nodeHeaderEvent: '#059669', // Green
+  nodeHeaderMindMap: '#f59e0b', // Amber
+  nodeHeaderMilestone: '#8b5cf6', // Purple
+  nodeHeaderInsight: '#ec4899', // Pink
   groupHeader: 'rgba(255, 255, 255, 0.1)',
   groupBg: 'rgba(255, 255, 255, 0.02)',
   text: '#e5e7eb',
@@ -28,6 +31,7 @@ export const COLORS = {
   wireActive: '#4ade80',
   wireLocked: '#ef4444',
   wireSelected: '#3b82f6',
+  wireInsight: '#ec4899',
   selection: 'rgba(59, 130, 246, 0.5)'
 };
 
@@ -41,7 +45,28 @@ export const NODE_TYPES = {
   concept: 'Concept',
   question: 'Question',
   summary: 'Summary',
-  resource: 'Resource'
+  resource: 'Resource',
+  mindmap: 'Mind Map',
+  milestone: 'Milestone',
+  insight: 'Insight',
+  reference: 'Reference'
+};
+
+export const NODE_ICONS = {
+  task: '✅',
+  event: '📅',
+  goal: '🎯',
+  note: '📝',
+  idea: '💡',
+  lecture: '🎓',
+  concept: '🧠',
+  question: '❓',
+  summary: '📊',
+  resource: '📚',
+  mindmap: '🗺️',
+  milestone: '🏁',
+  insight: '👁️',
+  reference: '🔗'
 };
 
 export const MOCK_AI_RESPONSES = {
