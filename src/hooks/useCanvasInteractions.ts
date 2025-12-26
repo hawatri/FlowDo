@@ -1,0 +1,215 @@
+import { useRef, useCallback } from 'react';
+import type { Viewport, ConnectingState, DragState } from '../types';
+
+interface UseCanvasInteractionsProps {
+  viewport: Viewport;
+  setViewport: (viewport: Viewport | ((prev: Viewport) => Viewport)) => void;
+  isDraggingCanvas: boolean;
+  setIsDraggingCanvas: (dragging: boolean) => void;
+  isDraggingNode: string | null;
+  setIsDraggingNode: (nodeId: string | null) => void;
+  isDraggingGroup: DragState | null;
+  setIsDraggingGroup: (state: DragState | null) => void;
+  isResizingNode: string | null;
+  setIsResizingNode: (nodeId: string | null) => void;
+  isResizingGroup: string | null;
+  setIsResizingGroup: (groupId: string | null) => void;
+  connecting: ConnectingState | null;
+  setConnecting: (state: ConnectingState | null) => void;
+  dragStart: { x: number; y: number };
+  setDragStart: (pos: { x: number; y: number }) => void;
+  setSelection: (id: string | null) => void;
+  setContextMenu: (menu: any) => void;
+  setAiMenu: (menu: any) => void;
+  onUpdateNodes: (updater: (nodes: any[]) => any[]) => void;
+  onUpdateGroups: (updater: (groups: any[]) => any[]) => void;
+  canvasRef: React.RefObject<HTMLDivElement>;
+}
+
+export const useCanvasInteractions = ({
+  viewport,
+  setViewport,
+  isDraggingCanvas,
+  setIsDraggingCanvas,
+  isDraggingNode,
+  setIsDraggingNode,
+  isDraggingGroup,
+  setIsDraggingGroup,
+  isResizingNode,
+  setIsResizingNode,
+  isResizingGroup,
+  setIsResizingGroup,
+  connecting,
+  setConnecting,
+  dragStart,
+  setDragStart,
+  setSelection,
+  setContextMenu,
+  setAiMenu,
+  onUpdateNodes,
+  onUpdateGroups,
+  canvasRef
+}: UseCanvasInteractionsProps) => {
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setViewport(prev => ({
+        ...prev,
+        zoom: Math.min(Math.max(prev.zoom - e.deltaY * 0.001, 0.2), 3)
+      }));
+    } else {
+      setViewport(prev => ({
+        ...prev,
+        x: prev.x - e.deltaX,
+        y: prev.y - e.deltaY
+      }));
+    }
+  }, [setViewport]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if ([0, 1, 2].includes(e.button)) {
+      mouseDownPos.current = { x: e.clientX, y: e.clientY };
+      if (e.button === 0) {
+        setSelection(null);
+        setContextMenu(null);
+        setAiMenu(null);
+      }
+    }
+  }, [setSelection, setContextMenu, setAiMenu]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (mouseDownPos.current && !isDraggingCanvas && !isDraggingNode && !isDraggingGroup && !isResizingNode && !isResizingGroup && !connecting) {
+      if (Math.abs(e.clientX - mouseDownPos.current.x) > 5 || Math.abs(e.clientY - mouseDownPos.current.y) > 5) {
+        setIsDraggingCanvas(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+      }
+    }
+
+    if (isDraggingCanvas) {
+      setViewport(prev => ({
+        ...prev,
+        x: prev.x + (e.clientX - dragStart.x),
+        y: prev.y + (e.clientY - dragStart.y)
+      }));
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+
+    if (isDraggingNode) {
+      onUpdateNodes(nodes => 
+        nodes.map(n => 
+          n.id === isDraggingNode 
+            ? { 
+                ...n, 
+                x: n.x + (e.clientX - dragStart.x) / viewport.zoom, 
+                y: n.y + (e.clientY - dragStart.y) / viewport.zoom 
+              } 
+            : n
+        )
+      );
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+
+    if (isDraggingGroup) {
+      const dx = (e.clientX - dragStart.x) / viewport.zoom;
+      const dy = (e.clientY - dragStart.y) / viewport.zoom;
+      
+      onUpdateGroups(groups => 
+        groups.map(g => 
+          g.id === isDraggingGroup.id 
+            ? { ...g, x: g.x + dx, y: g.y + dy } 
+            : g
+        )
+      );
+      
+      onUpdateNodes(nodes => 
+        nodes.map(n => 
+          isDraggingGroup.capturedNodes?.includes(n.id) 
+            ? { ...n, x: n.x + dx, y: n.y + dy } 
+            : n
+        )
+      );
+      
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+
+    if (isResizingNode) {
+      onUpdateNodes(nodes => 
+        nodes.map(n => 
+          n.id === isResizingNode 
+            ? { 
+                ...n, 
+                width: Math.max(180, n.width + (e.clientX - dragStart.x) / viewport.zoom), 
+                height: Math.max(120, n.height + (e.clientY - dragStart.y) / viewport.zoom) 
+              } 
+            : n
+        )
+      );
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+
+    if (isResizingGroup) {
+      onUpdateGroups(groups => 
+        groups.map(g => 
+          g.id === isResizingGroup 
+            ? { 
+                ...g, 
+                width: Math.max(200, g.width + (e.clientX - dragStart.x) / viewport.zoom), 
+                height: Math.max(150, g.height + (e.clientY - dragStart.y) / viewport.zoom) 
+              } 
+            : g
+        )
+      );
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+
+    if (connecting && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      setConnecting(prev => prev ? {
+        ...prev,
+        currentX: (e.clientX - rect.left - viewport.x) / viewport.zoom,
+        currentY: (e.clientY - rect.top - viewport.y) / viewport.zoom
+      } : null);
+    }
+  }, [
+    isDraggingCanvas, isDraggingNode, isDraggingGroup, isResizingNode, isResizingGroup, connecting,
+    dragStart, viewport, setViewport, setIsDraggingCanvas, setDragStart, onUpdateNodes, onUpdateGroups,
+    setConnecting, canvasRef
+  ]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDraggingCanvas(false);
+    setIsDraggingNode(null);
+    setIsDraggingGroup(null);
+    setIsResizingNode(null);
+    setIsResizingGroup(null);
+    setConnecting(null);
+    mouseDownPos.current = null;
+  }, [setIsDraggingCanvas, setIsDraggingNode, setIsDraggingGroup, setIsResizingNode, setIsResizingGroup, setConnecting]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isDraggingCanvas) return;
+    
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        viewportX: (e.clientX - rect.left - viewport.x) / viewport.zoom,
+        viewportY: (e.clientY - rect.top - viewport.y) / viewport.zoom,
+        type: 'canvas'
+      });
+    }
+    setAiMenu(null);
+  }, [isDraggingCanvas, canvasRef, viewport, setContextMenu, setAiMenu]);
+
+  return {
+    handleWheel,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    handleContextMenu
+  };
+};
