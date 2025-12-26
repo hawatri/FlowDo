@@ -5,7 +5,8 @@ export const generateAIContent = async (
   mode: string,
   prompt: string,
   apiKey: string,
-  attachment: Attachment | null = null
+  attachment: Attachment | null = null,
+  contextText: string = ''
 ): Promise<any | AIStructuredResponse> => {
   if (!apiKey || apiKey === 'demo') {
     await new Promise(r => setTimeout(r, 1000));
@@ -25,10 +26,15 @@ export const generateAIContent = async (
     // If attachment exists, add it to context
     if (attachment) {
       if (attachment.fileType === 'text') {
-        contextMessage = `\n\n[Attached File Content]:\n${attachment.content}\n\n`;
+        contextMessage += `\n\n[Node Attachment Content]:\n${attachment.content}\n\n`;
       } else if (attachment.fileType === 'image') {
-        contextMessage = `\n\n[Attached Image] Analyze this image content.`;
+        contextMessage += `\n\n[Attached Image] Analyze this image content.`;
       }
+    }
+
+    if (contextText) {
+      const truncatedContext = contextText.slice(0, 500000);
+      contextMessage += `\n\n[Source Material for Study Plan]:\n${truncatedContext}\n\n`;
     }
 
     if (mode === 'explain') {
@@ -56,7 +62,19 @@ Return a JSON object with the following structure:
 
 Return ONLY valid JSON, no markdown, no code blocks.`;
     } else if (mode === 'flow') {
-      userPrompt = `Create a structured study plan for: "${prompt}". Return a JSON object with a "steps" array (id, title, type, description, dependsOn). Create 5 steps. No markdown.`;
+      const baseInstruction = contextText 
+        ? `Analyze the "[Source Material]" provided below. Create a structured learning path/flowchart to master this content.`
+        : `Create a structured study plan for: "${prompt}".`;
+
+      userPrompt = `${baseInstruction} Return a JSON object with a "steps" array. Each step object must have: 
+      - id (number)
+      - title (string)
+      - type (choose from: 'lecture', 'concept', 'question', 'task', 'summary')
+      - description (short summary of what to learn)
+      - dependsOn (array of number IDs referring to previous steps)
+      
+      Create between 5 to 10 steps. Ensure dependencies are logical. No markdown.
+      ${contextMessage}`;
     } else {
       userPrompt = `Generate 3 related sub-topics or tasks for: "${prompt}"${contextMessage}. Return ONLY a JSON array of strings. No markdown.`;
     }

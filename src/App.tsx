@@ -18,7 +18,7 @@ import { useCanvasInteractions } from './hooks/useCanvasInteractions';
 
 // Utils
 import { saveStateToDB, loadStateFromDB, clearDB } from './utils/database';
-import { fileToBase64, fileToText, downloadFlow } from './utils/fileHandlers';
+import { fileToBase64, fileToText, pdfToText, downloadFlow } from './utils/fileHandlers';
 import { generateAIContent, generateChatResponse } from './utils/aiService';
 import { organizeNodesInViewport } from './utils/layout';
 
@@ -54,6 +54,8 @@ function FlowDo() {
   const [showMinimap, setShowMinimap] = useState(true);
   const [topicInput, setTopicInput] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(SETTINGS_KEY) || '');
+  const [importedText, setImportedText] = useState<string>('');
+  const [importedFileName, setImportedFileName] = useState<string | null>(null);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [isDraggingNode, setIsDraggingNode] = useState<string | null>(null);
   const [isResizingNode, setIsResizingNode] = useState<string | null>(null);
@@ -441,9 +443,35 @@ function FlowDo() {
     }
   }, [nodes, apiKey, setAiMenu, setIsAiLoading, setNodes, setEdges]);
 
+  const handleImportFileForFlow = useCallback(async (file: File) => {
+    try {
+      setIsAiLoading(true);
+      let text = '';
+      
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        text = await pdfToText(file);
+      } else if (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        text = await fileToText(file);
+      } else {
+        alert('Unsupported file type. Please upload a PDF or text file.');
+        setIsAiLoading(false);
+        return;
+      }
+      
+      setImportedText(text);
+      setImportedFileName(file.name);
+    } catch (error) {
+      console.error('File import error:', error);
+      alert('Failed to import file. Please try again.');
+      setIsAiLoading(false);
+    } finally {
+      setIsAiLoading(false);
+    }
+  }, [setIsAiLoading, setImportedText, setImportedFileName]);
+
   const handleGenerateFlow = useCallback(async () => {
-    if (!topicInput.trim()) {
-      alert('Please enter a topic');
+    if (!topicInput.trim() && !importedText) {
+      alert('Please enter a topic or upload a file');
       return;
     }
     
@@ -451,7 +479,8 @@ function FlowDo() {
     setIsAiLoading(true);
     
     try {
-      const steps = await generateAIContent('flow', topicInput, apiKey);
+      const prompt = topicInput.trim() || (importedFileName ? `Content from ${importedFileName}` : 'Study Plan');
+      const steps = await generateAIContent('flow', prompt, apiKey, null, importedText);
       console.log('Generated steps:', steps);
       
       if (!Array.isArray(steps)) {
@@ -550,8 +579,10 @@ function FlowDo() {
     } finally {
       setIsAiLoading(false);
       setTopicInput('');
+      setImportedText('');
+      setImportedFileName(null);
     }
-  }, [topicInput, apiKey, viewport, showChatSidebar, setShowTopicModal, setIsAiLoading, setNodes, setEdges, setGroups, setTopicInput]);
+  }, [topicInput, importedText, importedFileName, apiKey, viewport, showChatSidebar, setShowTopicModal, setIsAiLoading, setNodes, setEdges, setGroups, setTopicInput, setImportedText, setImportedFileName]);
 
   // Chat handler
   const handleChatQuery = useCallback(async (query: string, visibleNodesContext: string): Promise<string> => {
@@ -675,8 +706,14 @@ function FlowDo() {
         topicInput={topicInput}
         onTopicInputChange={setTopicInput}
         onGenerate={handleGenerateFlow}
-        onClose={() => setShowTopicModal(false)}
+        onClose={() => {
+          setShowTopicModal(false);
+          setImportedText('');
+          setImportedFileName(null);
+        }}
         isLoading={isAiLoading}
+        onFileUpload={handleImportFileForFlow}
+        fileName={importedFileName}
       />
 
       <LoadingOverlay isVisible={isAiLoading} />

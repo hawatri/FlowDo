@@ -1,5 +1,5 @@
-import React from 'react';
-import { Settings, BookOpen, Wand2, Sparkles } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Settings, BookOpen, Wand2, Sparkles, UploadCloud, FileText } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -60,6 +60,8 @@ interface TopicModalProps {
   onGenerate: () => void;
   onClose: () => void;
   isLoading: boolean;
+  onFileUpload: (file: File) => void;
+  fileName: string | null;
 }
 
 export const TopicModal: React.FC<TopicModalProps> = ({
@@ -68,35 +70,77 @@ export const TopicModal: React.FC<TopicModalProps> = ({
   onTopicInputChange,
   onGenerate,
   onClose,
-  isLoading
+  isLoading,
+  onFileUpload,
+  fileName
 }) => {
   if (!isOpen) return null;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-lg w-96 shadow-2xl">
+      <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-lg w-[480px] shadow-2xl">
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-purple-400">
           <BookOpen className="w-5 h-5" /> Create Study Plan
         </h2>
-        <textarea 
-          className="w-full bg-zinc-800 border border-zinc-700 rounded p-3 text-sm focus:outline-none focus:border-purple-500 min-h-[80px]" 
-          placeholder="Topic..." 
-          value={topicInput} 
-          onChange={(e) => onTopicInputChange(e.target.value)} 
-        />
-        <div className="flex justify-end gap-2 mt-4">
+        
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-zinc-500 uppercase font-semibold mb-1 block">By Topic</label>
+            <textarea 
+              className="w-full bg-zinc-800 border border-zinc-700 rounded p-3 text-sm focus:outline-none focus:border-purple-500 min-h-[80px]" 
+              placeholder="E.g., Quantum Mechanics, History of Rome..." 
+              value={topicInput} 
+              onChange={(e) => onTopicInputChange(e.target.value)} 
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="h-px bg-zinc-800 flex-1"></div>
+            <span className="text-xs text-zinc-600 font-medium">OR BY FILE</span>
+            <div className="h-px bg-zinc-800 flex-1"></div>
+          </div>
+
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+              fileName ? 'border-purple-500/50 bg-purple-500/10' : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/50'
+            }`}
+          >
+            <input 
+              ref={fileInputRef}
+              type="file" 
+              accept=".pdf,.txt,.md" 
+              className="hidden" 
+              onChange={(e) => e.target.files?.[0] && onFileUpload(e.target.files[0])}
+            />
+            {fileName ? (
+              <div className="flex items-center gap-2 text-purple-300">
+                <FileText size={20} />
+                <span className="text-sm font-medium truncate max-w-[300px]">{fileName}</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1 text-zinc-500">
+                <UploadCloud size={24} />
+                <span className="text-xs">Upload PDF or Text file</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-6">
           <button 
             onClick={onClose} 
-            className="px-3 py-1.5 text-sm hover:bg-zinc-800 rounded"
+            className="px-3 py-1.5 text-sm hover:bg-zinc-800 rounded text-zinc-300"
           >
             Cancel
           </button>
           <button 
             onClick={onGenerate} 
-            disabled={!topicInput.trim()} 
-            className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded font-medium flex items-center gap-2"
+            disabled={(!topicInput.trim() && !fileName) || isLoading} 
+            className="px-4 py-1.5 text-sm bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed rounded font-medium flex items-center gap-2 text-white"
           >
-            {isLoading ? 'Generating...' : 'Generate'} <Wand2 size={14}/>
+            {isLoading ? 'Generating...' : 'Generate Plan'} <Wand2 size={14}/>
           </button>
         </div>
       </div>
