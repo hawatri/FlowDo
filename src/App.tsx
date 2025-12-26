@@ -13,6 +13,8 @@ import { SettingsModal, TopicModal, LoadingOverlay, ConfirmModal } from './compo
 import { ChatSidebar } from './components/ChatSidebar';
 import { Minimap } from './components/Minimap';
 import { ZoomControls } from './components/ZoomControls';
+import { AuthModal } from './components/AuthModal';
+import { SavedFlowsModal } from './components/SavedFlowsModal';
 
 // Hooks
 import { useCanvasInteractions } from './hooks/useCanvasInteractions';
@@ -22,6 +24,9 @@ import { saveStateToDB, loadStateFromDB, clearDB } from './utils/database';
 import { fileToBase64, fileToText, pdfToText, downloadFlow, uploadFlow } from './utils/fileHandlers';
 import { generateAIContent, generateChatResponse } from './utils/aiService';
 import { organizeNodesInViewport } from './utils/layout';
+import { onAuthStateChange } from './utils/firebase';
+import type { User } from 'firebase/auth';
+import type { AppState } from './types';
 
 // Data
 import { initialNodes, initialEdges, initialGroups } from './data/initialData';
@@ -81,6 +86,9 @@ function FlowDo() {
   const [showChatSidebar, setShowChatSidebar] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showSavedFlowsModal, setShowSavedFlowsModal] = useState(false);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [topicInput, setTopicInput] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(SETTINGS_KEY) || '');
   const [importedText, setImportedText] = useState<string>('');
@@ -162,6 +170,23 @@ function FlowDo() {
     
     return () => clearTimeout(saveTimer);
   }, [nodes, edges, groups, viewport, isDbReady]);
+
+  // Firebase auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChange((user) => {
+      setFirebaseUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Handler for loading flows from Firebase
+  const handleLoadFlowFromFirebase = useCallback((flowData: AppState) => {
+    setNodes(flowData.nodes);
+    setEdges(flowData.edges);
+    setGroups(flowData.groups);
+    setViewport(flowData.viewport);
+    toastSuccess('Flow loaded from cloud');
+  }, [setNodes, setEdges, setGroups, setViewport]);
 
   // Helper functions
   const isNodeInGroup = (node: Node, group: Group) => 
@@ -891,6 +916,21 @@ function FlowDo() {
 
       <LoadingOverlay isVisible={isAiLoading} />
 
+      {/* Firebase Modals */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        currentUser={firebaseUser}
+        onAuthChange={setFirebaseUser}
+      />
+      <SavedFlowsModal
+        isOpen={showSavedFlowsModal}
+        onClose={() => setShowSavedFlowsModal(false)}
+        currentFlow={{ nodes, edges, groups, viewport }}
+        onLoadFlow={handleLoadFlowFromFirebase}
+        currentUser={firebaseUser}
+      />
+
       <ConfirmModal
         isOpen={showResetConfirm}
         title="Reset Canvas"
@@ -952,6 +992,22 @@ function FlowDo() {
           title={showMinimap ? "Hide minimap" : "Show minimap"}
         >
           {showMinimap ? <EyeOff size={14} /> : <Eye size={14} />} Minimap
+        </button>
+        {firebaseUser && (
+          <button 
+            onClick={() => setShowSavedFlowsModal(true)} 
+            className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/50 px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2"
+            title="View and manage saved flows"
+          >
+            <Database size={14} /> Saved Flows
+          </button>
+        )}
+        <button 
+          onClick={() => setShowAuthModal(true)} 
+          className={`${firebaseUser ? 'bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/50' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'} px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2`}
+          title={firebaseUser ? 'Account' : 'Sign in to save flows'}
+        >
+          <Database size={14} /> {firebaseUser ? 'Account' : 'Sign In'}
         </button>
         <button 
           onClick={() => setShowSettings(true)} 
