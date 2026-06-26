@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { X, User, LogIn, LogOut, Loader2 } from 'lucide-react';
 import { signInAnonymouslyUser, signInWithGoogle, signOutUser, onAuthStateChange } from '../utils/firebase';
-import type { User } from 'firebase/auth';
+import type { User as FirebaseUser } from 'firebase/auth';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: User | null;
-  onAuthChange: (user: User | null) => void;
+  currentUser: FirebaseUser | null;
+  onAuthChange: (user: FirebaseUser | null) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({

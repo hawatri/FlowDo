@@ -94,6 +94,36 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
     onMouseDown(mouseEvent, node.id);
   };
 
+  // Browsers block top-level navigation to data: URLs, so opening an uploaded
+  // file (stored as a base64 data URL) via a plain <a target="_blank"> silently
+  // fails. Convert the data URL to a blob: URL, which browsers allow, then open it.
+  const handleOpenAttachment = (e: React.MouseEvent, att: Attachment) => {
+    if (!att.url) return;
+    // Links and non-data URLs open fine on their own; let the default happen.
+    if (att.type !== 'file' || !att.url.startsWith('data:')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      const [meta, base64] = att.url.split(',');
+      const mimeMatch = meta.match(/data:([^;]+)/);
+      const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mime });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      // Revoke after a delay so the new tab has time to load it.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      console.error('Failed to open attachment', err);
+    }
+  };
+
   return (
     <div 
       className="absolute flex flex-col rounded-lg shadow-xl border overflow-hidden group transition-shadow duration-200" 
@@ -204,17 +234,17 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
           )}
 
           {/* Attachments */}
-          <div className="flex flex-col gap-1 mb-1 max-h-[120px] overflow-y-auto pr-1">
+          <div className="flex flex-col gap-1 mb-1 max-h-[120px] overflow-y-auto pr-1 thin-scrollbar">
             {node.data.attachments?.map((att: Attachment) => {
               const isImage = att.type === 'file' && att.url && att.url.startsWith('data:image');
-              
+
               if (isImage) {
                 return (
                   <div key={att.id} className="relative group/image mb-1">
-                    <img 
-                      src={att.url} 
-                      alt={att.name} 
-                      className="w-full h-auto max-h-32 object-cover rounded bg-zinc-900 border border-zinc-700" 
+                    <img
+                      src={att.url}
+                      alt={att.name}
+                      className="w-full h-auto max-h-20 object-cover rounded bg-zinc-900 border border-zinc-700"
                     />
                     <div className="absolute top-1 right-1 opacity-0 group-hover/image:opacity-100 transition-opacity">
                       <button 
@@ -243,12 +273,13 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
                   ) : (
                     <FileText size={10} className="text-zinc-400 shrink-0"/>
                   )}
-                  <a 
-                    href={att.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="truncate flex-1 hover:underline text-zinc-300 hover:text-white" 
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="truncate flex-1 hover:underline text-zinc-300 hover:text-white"
                     onMouseDown={e => e.stopPropagation()}
+                    onClick={(e) => handleOpenAttachment(e, att)}
                   >
                     {att.name}
                   </a>
