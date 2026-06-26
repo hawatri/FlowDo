@@ -1,7 +1,7 @@
 import React from 'react';
-import { 
-  CheckCircle, Circle, X, Trash2, Lock, Paperclip, 
-  Presentation, Lightbulb, HelpCircle, FileText, 
+import {
+  CheckCircle, Circle, X, Trash2, Lock, Paperclip,
+  Presentation, Lightbulb, HelpCircle, FileText,
   Link as LinkIcon, Sparkles, GripHorizontal, Pin
 } from 'lucide-react';
 import { COLORS, DEFAULT_NODE_WIDTH, DEFAULT_NODE_HEIGHT } from '../constants';
@@ -234,9 +234,9 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
           )}
 
           {/* Attachments */}
-          <div className="flex flex-col gap-1 mb-1 max-h-[120px] overflow-y-auto pr-1 thin-scrollbar">
+          <div className="flex flex-col gap-1 mb-1">
             {node.data.attachments?.map((att: Attachment) => {
-              const isImage = att.type === 'file' && att.url && att.url.startsWith('data:image');
+              const isImage = att.type === 'file' && !!att.url && att.url.startsWith('data:image');
 
               if (isImage) {
                 return (
@@ -244,14 +244,17 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
                     <img
                       src={att.url}
                       alt={att.name}
-                      className="w-full h-auto max-h-20 object-cover rounded bg-zinc-900 border border-zinc-700"
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={(e) => handleOpenAttachment(e, att)}
+                      className="w-full h-auto max-h-32 object-contain rounded bg-zinc-900 border border-zinc-700 cursor-pointer hover:border-zinc-500 transition-colors"
+                      title={`Open ${att.name}`}
                     />
                     <div className="absolute top-1 right-1 opacity-0 group-hover/image:opacity-100 transition-opacity">
-                      <button 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          onDeleteAttachment(node.id, att.id); 
-                        }} 
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteAttachment(node.id, att.id);
+                        }}
                         className="p-1 bg-black/50 hover:bg-red-500 rounded text-white"
                       >
                         <X size={10} />
@@ -261,11 +264,11 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
                   </div>
                 );
               }
-              
+
               return (
-                <div 
-                  key={att.id} 
-                  className="flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-[10px] max-w-full" 
+                <div
+                  key={att.id}
+                  className="flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-[10px] max-w-full"
                   title={att.name}
                 >
                   {att.type === 'link' ? (
@@ -283,11 +286,11 @@ export const FlowNode: React.FC<FlowNodeProps> = ({
                   >
                     {att.name}
                   </a>
-                  <button 
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      onDeleteAttachment(node.id, att.id); 
-                    }} 
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteAttachment(node.id, att.id);
+                    }}
                     className="hover:text-red-400 shrink-0 ml-1"
                   >
                     <X size={10} />
